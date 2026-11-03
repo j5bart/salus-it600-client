@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -388,6 +389,61 @@ class TestMiniTrvParsers(unittest.TestCase):
         self.assertEqual(-58, sensors["trv_mini_1_rssi"].state)
         self.assertEqual("diagnostic", sensors["trv_mini_1_rssi"].entity_category)
         self.assertEqual(255, sensors["trv_mini_1_lqi"].state)
+
+    def _poll(
+        self, previous: dict[str, Any] | None, report: str | None, now: datetime
+    ) -> dict[str, Any]:
+        """Parse one poll at a fixed time, returning sensors by unique ID."""
+        payload = _mini_trv_payload(CommandResponse_d=report)
+        with patch("salus_it600.parsers.binary_sensor._utc_now", return_value=now):
+            sensors = parse_binary_relay_sensor_devices(payload, previous)
+        return {sensor.unique_id: sensor for sensor in sensors}
+
+    def test_report_timestamp_tracks_when_the_report_changes(self) -> None:
+        sensor_id = "trv_mini_1_temperature"
+        first_time = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)
+        later_time = datetime(2026, 10, 31, 12, 5, tzinfo=UTC)
+
+        def changed_at(sensors: dict[str, Any]) -> Any:
+            return sensors[sensor_id].extra_state_attributes["last_report_changed_at"]
+
+        # Unknown on the first poll, as it may be an old reply.
+        first = self._poll(None, _hex(SAMPLE_HEATING), first_time)
+        self.assertIsNone(changed_at(first))
+
+        # The gateway serving the same reply again is not a new report.
+        same = self._poll(first, _hex(SAMPLE_HEATING), later_time)
+        self.assertIsNone(changed_at(same))
+
+        changed = self._poll(same, _hex(SAMPLE_IDLE), first_time)
+        self.assertEqual("2026-10-31T12:00:00+00:00", changed_at(changed))
+
+        repeat = self._poll(changed, _hex(SAMPLE_IDLE), later_time)
+        self.assertEqual("2026-10-31T12:00:00+00:00", changed_at(repeat))
+
+    def test_report_timestamp_ignores_replies_and_missing_reports(self) -> None:
+        sensor_id = "trv_mini_1_temperature"
+        first_time = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)
+        later_time = datetime(2026, 10, 31, 12, 5, tzinfo=UTC)
+        first = self._poll(None, _hex(SAMPLE_HEATING), first_time)
+        changed = self._poll(first, _hex(SAMPLE_IDLE), first_time)
+
+        for label, report in {"reply": _hex("B381"), "missing": None}.items():
+            with self.subTest(label):
+                sensors = self._poll(changed, report, later_time)
+
+                self.assertEqual(
+                    changed[sensor_id].extra_state_attributes,
+                    sensors[sensor_id].extra_state_attributes,
+                )
+
+        # The same report returning after a command reply is not new either.
+        reply = self._poll(changed, _hex("B381"), later_time)
+        back = self._poll(reply, _hex(SAMPLE_IDLE), later_time)
+        self.assertEqual(
+            "2026-10-31T12:00:00+00:00",
+            back[sensor_id].extra_state_attributes["last_report_changed_at"],
+        )
 
     def test_temperature_is_carried_forward(self) -> None:
         first = {

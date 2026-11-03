@@ -198,6 +198,7 @@ def _child_sensor_device(
     device_class: str | None,
     parent_unique_id: str,
     entity_category: str | None = None,
+    extra_state_attributes: dict[str, Any] | None = None,
 ) -> SensorDevice:
     """Return a child sensor using shared parent device metadata."""
     return SensorDevice(
@@ -207,6 +208,7 @@ def _child_sensor_device(
         device_class=device_class,
         parent_unique_id=parent_unique_id,
         entity_category=entity_category,
+        extra_state_attributes=extra_state_attributes,
     )
 
 

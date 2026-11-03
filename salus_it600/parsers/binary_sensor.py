@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Any
 
 from ..const import MINI_TRV_ERROR_CODES, TEMP_CELSIUS
@@ -26,6 +27,10 @@ from .mini_trv import decode_mini_trv_report
 # ZigBee short addresses that mean "not paired" rather than a real partner:
 # 0x0000 is the coordinator (the gateway itself) and 0xFFFF is unassigned.
 _UNPAIRED_SHORT_IDS = frozenset({0x0000, 0xFFFF})
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 def parse_binary_sensor_device(
@@ -195,6 +200,11 @@ def parse_binary_relay_sensor_devices(
     poll. Like the signal readings, the TRV temperature is carried forward when
     a poll omits `CommandResponse_d` or it does not decode, so the sensor does
     not flap to unavailable; availability still follows the parent device.
+
+    The temperature sensor's `last_report_changed_at` attribute is when the
+    decoded report last differed from the previous one. The payload has no
+    timestamp and the gateway can keep serving an old reply, so a report decoding
+    is not proof that it is new. It is None until the first change since startup.
     """
     unique_id = device_status.get("data", {}).get("UniID")
     if unique_id is None:
@@ -231,14 +241,24 @@ def _mini_trv_temperature_device(
     sit600i = device_status.get("sIT600I")
     payload = sit600i if isinstance(sit600i, dict) else {}
 
-    report = decode_mini_trv_report(payload.get("CommandResponse_d"))
+    raw_report = payload.get("CommandResponse_d")
+    report = decode_mini_trv_report(raw_report)
+    previous = previous_sensors.get(sensor_id)
+    previous_attributes = (previous.extra_state_attributes or {}) if previous else {}
+
     if report is not None:
         state: Any = report.trv_temperature
+        changed_at = previous_attributes.get("last_report_changed_at")
+        if previous is not None and raw_report != previous_attributes.get(
+            "last_report"
+        ):
+            changed_at = _utc_now().isoformat(timespec="seconds")
+        attributes = {"last_report": raw_report, "last_report_changed_at": changed_at}
+    elif previous is None:
+        return None
     else:
-        previous = previous_sensors.get(sensor_id)
-        if previous is None:
-            return None
         state = previous.state
+        attributes = previous_attributes
 
     return _child_sensor_device(
         device_status,
@@ -248,4 +268,5 @@ def _mini_trv_temperature_device(
         unit_of_measurement=TEMP_CELSIUS,
         device_class="temperature",
         parent_unique_id=unique_id,
+        extra_state_attributes=attributes,
     )

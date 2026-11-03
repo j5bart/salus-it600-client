@@ -9,6 +9,10 @@
   reading when a poll omits the report, as the
   signal sensors already do. it600Receiver also gets RSSI and LQI sensors when
   its payload carries them.
+- The it600MINITRV temperature sensor's attributes hold the last raw report
+  (`last_report`) and when it last changed (`last_report_changed_at`), to help
+  spot a TRV that has stopped reporting. `SensorDevice` gains
+  `extra_state_attributes`.
 - The it600MINITRV heat sensor's attributes name the paired thermostat
   (`paired_thermostat_short_id`, plus `paired_thermostat_id` and
   `paired_thermostat_name` when that thermostat is on the same gateway).

@@ -229,6 +229,14 @@ status digits, follow the mode: `000` Auto, `111` Manual on, `020` Manual off.
 In both layouts, a TRV temperature outside 0-60 °C (exclusive of 0) is treated
 as a decoding error, and no reading is reported.
 
+The payload has no report timestamp, and the gateway can keep serving an old
+reply, so a report decoding does not prove it is new. The temperature sensor's
+`last_report_changed_at` attribute instead holds the time (UTC) the client first
+saw a valid report differ from the previous one, and `last_report` holds that
+report's raw hex. It is `None` until the first change since startup. An unchanged
+timestamp does not always mean the TRV has stopped reporting, as two reports can
+be identical.
+
 ### Setting the mode
 
 The it600MINITRV has no named write fields such as `SetHoldType`. Commands are
